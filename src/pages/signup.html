@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create account GÇö Telegram Session Store</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/main.css" />
+  </head>
+  <body class="auth-body">
+    <div class="auth-card">
+      <a class="brand" href="/">
+        <div class="brand-mark">TS</div>
+        <span>Telegram Session Store</span>
+      </a>
+      <h1>Create account</h1>
+      <p class="sub">
+        Your account unlocks the multi-session vault for Telegram Automation.
+      </p>
+
+      <div id="auth-alert" class="auth-alert error" hidden></div>
+
+      <form id="signup-form">
+        <div class="field">
+          <label for="name">Display name</label>
+          <input
+            id="name"
+            name="name"
+            type="text"
+            autocomplete="name"
+            placeholder="Abedin"
+          />
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autocomplete="email"
+            required
+            placeholder="you@company.com"
+          />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="new-password"
+            required
+            minlength="6"
+            placeholder="At least 6 characters"
+          />
+        </div>
+        <div class="field">
+          <label for="confirm">Confirm password</label>
+          <input
+            id="confirm"
+            name="confirm"
+            type="password"
+            autocomplete="new-password"
+            required
+            minlength="6"
+            placeholder="Repeat password"
+          />
+        </div>
+        <button class="btn primary block" id="btn-submit" type="submit">
+          Create account
+        </button>
+      </form>
+
+      <p class="auth-footer">
+        Already have an account?
+        <a href="/login.html">Sign in</a>
+      </p>
+    </div>
+    <script type="module" src="/js/v/signup.js"></script>
+  </body>
+</html>

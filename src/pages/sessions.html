@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sessions GÇö Telegram Automation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/app.css" />
+  </head>
+  <body class="app-body">
+    <div id="app-gate" class="app-gate"><div class="spinner"></div></div>
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <div class="app-layout">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-mark">TS</div>
+          <div>
+            <strong>Session Store</strong>
+            <span>Telegram Automation</span>
+          </div>
+        </div>
+        <nav class="nav-list">
+          <a class="nav-item" data-nav="dashboard" href="/dashboard.html"
+            ><span class="ico">Gùê</span> Dashboard</a
+          >
+          <a class="nav-item" data-nav="sessions" href="/sessions.html"
+            ><span class="ico">GùÄ</span> Sessions</a
+          >
+        </nav>
+        <div class="sidebar-user">
+          <div class="user-avatar" data-user-initial>A</div>
+          <div class="user-meta">
+            <strong data-user-name>GÇö</strong>
+            <span data-user-email>GÇö</span>
+          </div>
+          <button class="btn ghost sm" data-logout type="button">Out</button>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div>
+            <button class="btn ghost sm" id="sidebar-toggle" type="button">
+              Menu
+            </button>
+            <h1>Telegram Sessions</h1>
+            <div class="topbar-sub">
+              Multi-account vault -+ Telethon / Pyrogram -+ Firebase encrypted
+            </div>
+          </div>
+          <button class="btn ghost" id="btn-refresh-all" type="button">
+            Refresh all active
+          </button>
+        </header>
+
+        <div class="content">
+          <div class="stats-row">
+            <div class="stat-card">
+              <span>In vault</span>
+              <strong id="count-all">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Active now</span>
+              <strong id="count-active">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Formats</span>
+              <strong style="font-size: 1.1rem">Telethon -+ Pyrogram</strong>
+            </div>
+          </div>
+
+          <div id="live-bar" class="live-bar">
+            <span class="live-dot"></span>
+            <span>Sessions load from Firebase after account login</span>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Add session</h2>
+                <p>
+                  Paste a string session. It is validated with Telegram API,
+                  encrypted, then saved to your Firebase account.
+                </p>
+              </div>
+            </div>
+
+            <div id="add-alert" class="panel-alert" hidden></div>
+
+            <form id="add-form">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="session-type">Session format</label>
+                  <select id="session-type">
+                    <option value="auto">Auto detect</option>
+                    <option value="telethon">Telethon / StringSession</option>
+                    <option value="pyrogram">Pyrogram</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="session-label">Label (optional)</label>
+                  <input
+                    id="session-label"
+                    type="text"
+                    placeholder="e.g. Marketing account"
+                  />
+                </div>
+                <div class="field full">
+                  <label for="session-string">Session string</label>
+                  <textarea
+                    id="session-string"
+                    placeholder="Paste Telethon or Pyrogram session string hereGÇª"
+                    required
+                  ></textarea>
+                </div>
+              </div>
+              <button class="btn primary" id="btn-add-session" type="submit">
+                Add session
+              </button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Your accounts</h2>
+                <p>
+                  Toggle Active On/Off per account. Refresh does not log you out
+                  GÇö vault restores from Firebase.
+                </p>
+              </div>
+            </div>
+
+            <div id="sessions-empty" class="empty-state" hidden>
+              <strong>Vault is empty</strong>
+              Add your first Telegram session string above.
+            </div>
+            <div id="sessions-grid" class="sessions-grid"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/js/v/sessions-page.js"></script>
+  </body>
+</html>

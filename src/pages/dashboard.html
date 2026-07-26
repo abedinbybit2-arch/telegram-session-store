@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard GÇö Telegram Automation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/app.css" />
+  </head>
+  <body class="app-body">
+    <div id="app-gate" class="app-gate"><div class="spinner"></div></div>
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <div class="app-layout">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-mark">TS</div>
+          <div>
+            <strong>Session Store</strong>
+            <span>Telegram Automation</span>
+          </div>
+        </div>
+        <nav class="nav-list">
+          <a class="nav-item" data-nav="dashboard" href="/dashboard.html"
+            ><span class="ico">Gùê</span> Dashboard</a
+          >
+          <a class="nav-item" data-nav="sessions" href="/sessions.html"
+            ><span class="ico">GùÄ</span> Sessions</a
+          >
+        </nav>
+        <div class="sidebar-user">
+          <div class="user-avatar" data-user-initial>A</div>
+          <div class="user-meta">
+            <strong data-user-name>GÇö</strong>
+            <span data-user-email>GÇö</span>
+          </div>
+          <button class="btn ghost sm" data-logout type="button">Out</button>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div>
+            <button class="btn ghost sm" id="sidebar-toggle" type="button">
+              Menu
+            </button>
+            <h1>Dashboard</h1>
+            <div class="topbar-sub">Overview of your Telegram Automation vault</div>
+          </div>
+          <a class="btn primary" href="/sessions.html">Manage sessions</a>
+        </header>
+
+        <div class="content">
+          <div class="stats-row">
+            <div class="stat-card">
+              <span>Total sessions</span>
+              <strong id="stat-total">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Active</span>
+              <strong id="stat-active">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Paused</span>
+              <strong id="stat-paused">0</strong>
+            </div>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Recent accounts</h2>
+                <p>Sessions restored from Firebase after login.</p>
+              </div>
+            </div>
+            <div id="recent-empty" class="empty-state" hidden>
+              <strong>No sessions yet</strong>
+              Add a Telethon or Pyrogram session to get started.
+            </div>
+            <div id="recent-list" class="mini-list"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/js/v/dashboard.js"></script>
+  </body>
+</html>

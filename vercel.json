@@ -1,5 +1,22 @@
 {
   "cleanUrls": false,
+  "rewrites": [],
+  "redirects": [
+    { "source": "/src/(.*)", "destination": "/", "permanent": false },
+    { "source": "/js/auth.js", "destination": "/", "permanent": false },
+    { "source": "/js/app-shell.js", "destination": "/", "permanent": false },
+    { "source": "/js/firebase-config.js", "destination": "/", "permanent": false },
+    { "source": "/js/session-api.js", "destination": "/", "permanent": false },
+    { "source": "/js/sessions-store.js", "destination": "/", "permanent": false },
+    { "source": "/js/sessions-page.js", "destination": "/", "permanent": false },
+    { "source": "/js/landing.js", "destination": "/", "permanent": false },
+    { "source": "/js/login.js", "destination": "/", "permanent": false },
+    { "source": "/js/signup.js", "destination": "/", "permanent": false },
+    { "source": "/js/dashboard.js", "destination": "/", "permanent": false },
+    { "source": "/js/protect.js", "destination": "/", "permanent": false },
+    { "source": "/css/main.css", "destination": "/css/v/main.css", "permanent": false },
+    { "source": "/css/app.css", "destination": "/css/v/app.css", "permanent": false }
+  ],
   "functions": {
     "api/session.js": {
       "maxDuration": 60,
@@ -32,6 +49,13 @@
       "source": "/css/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/src/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex" },
+        { "key": "Cache-Control", "value": "no-store" }
       ]
     }
   ]
