@@ -8,7 +8,7 @@ const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 const { AuthKey } = require("telegram/crypto/AuthKey");
 
-const HARD_TIMEOUT_MS = 40000;
+const HARD_TIMEOUT_MS = 32000;
 
 function resolveApiCredentials() {
   const apiId = Number(process.env.TG_API_ID || "");
@@ -239,14 +239,47 @@ async function normalizeSessionInput(session, typeHint) {
   );
 }
 
+function assertSessionShape(sessionString) {
+  let ss;
+  try {
+    ss = new StringSession(sessionString);
+  } catch (e) {
+    throw new Error(
+      "Invalid session string format (GramJS/Telethon). " + errMsg(e)
+    );
+  }
+  // Auth key must exist for an authorized user session
+  const key = ss.getAuthKey?.() || ss.authKey || ss._authKey || ss._key;
+  const keyBuf =
+    key && typeof key.getKey === "function"
+      ? key.getKey()
+      : Buffer.isBuffer(key)
+        ? key
+        : key?._key || null;
+
+  // StringSession may store raw _key until load(); check buffer length if present
+  if (ss._key && Buffer.isBuffer(ss._key) && ss._key.length < 200) {
+    throw new Error(
+      "Session auth key is incomplete. Paste a full Telethon/Pyrogram export."
+    );
+  }
+  if (!ss._dcId || ss._dcId < 1 || ss._dcId > 5) {
+    throw new Error(
+      "Session missing valid Telegram DC. Export a fresh session string."
+    );
+  }
+  return ss;
+}
+
 function createClient(sessionString, apiId, apiHash, useWSS) {
+  assertSessionShape(sessionString);
   return new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
-    connectionRetries: 2,
+    connectionRetries: 1,
     useWSS: Boolean(useWSS),
-    timeout: 15,
-    requestRetries: 2,
+    timeout: 12,
+    requestRetries: 1,
     autoReconnect: false,
-    retryDelay: 1000,
+    retryDelay: 500,
     deviceModel: "Telegram Session Store",
     systemVersion: "Web",
     appVersion: "1.1.0",
