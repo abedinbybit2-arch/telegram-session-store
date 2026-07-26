@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "abedin-automation"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }
