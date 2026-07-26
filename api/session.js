@@ -8,7 +8,8 @@ const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 const { AuthKey } = require("telegram/crypto/AuthKey");
 
-const HARD_TIMEOUT_MS = 32000;
+// Full validate must finish within Vercel function maxDuration (60s)
+const HARD_TIMEOUT_MS = 55000;
 
 function resolveApiCredentials() {
   const apiId = Number(process.env.TG_API_ID || "");
@@ -248,16 +249,7 @@ function assertSessionShape(sessionString) {
       "Invalid session string format (GramJS/Telethon). " + errMsg(e)
     );
   }
-  // Auth key must exist for an authorized user session
-  const key = ss.getAuthKey?.() || ss.authKey || ss._authKey || ss._key;
-  const keyBuf =
-    key && typeof key.getKey === "function"
-      ? key.getKey()
-      : Buffer.isBuffer(key)
-        ? key
-        : key?._key || null;
 
-  // StringSession may store raw _key until load(); check buffer length if present
   if (ss._key && Buffer.isBuffer(ss._key) && ss._key.length < 200) {
     throw new Error(
       "Session auth key is incomplete. Paste a full Telethon/Pyrogram export."
@@ -271,25 +263,53 @@ function assertSessionShape(sessionString) {
   return ss;
 }
 
-function createClient(sessionString, apiId, apiHash, useWSS) {
-  assertSessionShape(sessionString);
+/**
+ * Keep auth key, force official DC IPv4 + port 443 (Vercel-friendly).
+ * Avoids stale IPs / port 80 which often hang on serverless.
+ */
+function normalizeSessionForServer(sessionString) {
+  const ss = assertSessionShape(sessionString);
+  const dcId = Number(ss._dcId);
+  const dc = DC_MAP[dcId] || DC_MAP[2];
+  try {
+    ss.setDC(dcId, dc.ip, 443);
+  } catch {
+    /* keep original address */
+  }
+  try {
+    const saved = ss.save();
+    if (saved && saved[0] === "1") return saved;
+  } catch {
+    /* fall through */
+  }
+  return sessionString;
+}
+
+/**
+ * Same client profile as working AndroGRAM MTProto on Vercel:
+ * useWSS:true → port 443, more retries, no dual TCP:80 path.
+ */
+function createClient(sessionString, apiId, apiHash) {
   return new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
-    connectionRetries: 1,
-    useWSS: Boolean(useWSS),
-    timeout: 12,
-    requestRetries: 1,
+    connectionRetries: 5,
+    useWSS: true,
+    timeout: 30,
+    requestRetries: 3,
     autoReconnect: false,
-    retryDelay: 500,
+    retryDelay: 1000,
+    floodSleepThreshold: 24,
     deviceModel: "Telegram Session Store",
-    systemVersion: "Web",
-    appVersion: "1.1.0",
+    systemVersion: "Server",
+    appVersion: "1.2.0",
     langCode: "en",
   });
 }
 
 async function safeDisconnect(client) {
   try {
-    await client.disconnect();
+    if (client && !client.disconnected) {
+      await client.disconnect();
+    }
   } catch {
     /* ignore */
   }
@@ -322,64 +342,34 @@ function mapUser(me) {
 }
 
 /**
- * Connect with TCP first (Node/serverless-friendly), then WSS fallback.
+ * Single-path connect (no TCP:80 then WSS double-wait).
+ * Matches production-proven GramJS settings on Vercel.
  */
 async function withClient(sessionString, apiId, apiHash, fn) {
-  const modes = [false, true]; // useWSS
-  let lastErr;
+  const normalized = normalizeSessionForServer(sessionString);
+  const client = createClient(normalized, apiId, apiHash);
 
-  for (const useWSS of modes) {
-    const client = createClient(sessionString, apiId, apiHash, useWSS);
-    try {
-      await withTimeout(
-        (async () => {
-          await client.connect();
-        })(),
-        20000,
-        `Connect timeout (${useWSS ? "WSS" : "TCP"})`
-      );
+  try {
+    await client.connect();
 
-      const authorized = await withTimeout(
-        client.checkAuthorization(),
-        10000,
-        "Auth check timeout"
+    const authorized = await client.checkAuthorization();
+    if (!authorized) {
+      throw new Error(
+        "Session is not authorized (expired or invalid). Generate a new session string."
       );
-      if (!authorized) {
-        throw new Error(
-          "Session is not authorized (expired or invalid). Generate a new session string."
-        );
-      }
-
-      const result = await withTimeout(
-        fn(client),
-        15000,
-        "getMe timeout"
-      );
-      let saved = sessionString;
-      try {
-        saved = client.session.save() || sessionString;
-      } catch {
-        /* keep original */
-      }
-      await safeDisconnect(client);
-      return { ...result, sessionString: saved };
-    } catch (err) {
-      lastErr = err;
-      await safeDisconnect(client);
-      const msg = errMsg(err);
-      // Don't retry other transport for hard session errors
-      if (
-        /not authorized|invalid|AUTH_KEY|USER_DEACTIVATED|SESSION_REVOKED|Not a valid string/i.test(
-          msg
-        )
-      ) {
-        break;
-      }
-      // try next mode
     }
-  }
 
-  throw lastErr || new Error("Failed to connect with session");
+    const result = await fn(client);
+    let saved = normalized;
+    try {
+      saved = client.session.save() || normalized;
+    } catch {
+      /* keep normalized */
+    }
+    return { ...result, sessionString: saved };
+  } finally {
+    await safeDisconnect(client);
+  }
 }
 
 function friendlyError(err) {
@@ -396,8 +386,17 @@ function friendlyError(err) {
   if (/FLOOD_WAIT/i.test(msg)) {
     return "Telegram rate limit (FLOOD_WAIT). Wait a minute and retry.";
   }
-  if (/TIMEOUT|Timed out|ECONN|ENOTFOUND|Network/i.test(msg)) {
-    return "Network timeout reaching Telegram. Retry — serverless cold start can be slow.";
+  if (/incomplete|missing valid Telegram DC/i.test(msg)) {
+    return msg;
+  }
+  if (/not authorized/i.test(msg)) {
+    return msg;
+  }
+  if (/TIMEOUT|Timed out|ECONN|ENOTFOUND|Network|Connect timeout/i.test(msg)) {
+    return (
+      "Could not reach Telegram DC from the server (connect timeout). " +
+      "Wait 5s and retry once. If it keeps failing, the session may be from a blocked IP/DC — export a fresh session."
+    );
   }
   return msg;
 }
@@ -425,7 +424,52 @@ module.exports = async function handler(req, res) {
         apiId: creds.ok ? creds.apiId : null,
         supports: ["telethon", "pyrogram", "string", "auto"],
         timeoutMs: HARD_TIMEOUT_MS,
+        transport: "wss-443",
       });
+      return;
+    }
+
+    // Quick Telegram DC reachability check (no session required)
+    if (action === "probe") {
+      const creds = resolveApiCredentials();
+      if (!creds.ok) {
+        res.status(500).json({ ok: false, error: creds.error });
+        return;
+      }
+      const t0 = Date.now();
+      const client = new TelegramClient(
+        new StringSession(""),
+        creds.apiId,
+        creds.apiHash,
+        {
+          connectionRetries: 3,
+          useWSS: true,
+          timeout: 20,
+          autoReconnect: false,
+          deviceModel: "TSS Probe",
+          systemVersion: "Server",
+          appVersion: "1.2.0",
+        }
+      );
+      try {
+        await withTimeout(client.connect(), 20000, "Probe connect timeout");
+        const ms = Date.now() - t0;
+        await safeDisconnect(client);
+        res.status(200).json({
+          ok: true,
+          connected: true,
+          ms,
+          message: "Telegram DC reachable from this server",
+        });
+      } catch (err) {
+        await safeDisconnect(client);
+        res.status(200).json({
+          ok: false,
+          connected: false,
+          ms: Date.now() - t0,
+          error: friendlyError(err),
+        });
+      }
       return;
     }
 

@@ -3,7 +3,7 @@
  */
 
 const ENDPOINT = "/api/session";
-const DEFAULT_TIMEOUT_MS = 55000;
+const DEFAULT_TIMEOUT_MS = 58000;
 
 async function post(body, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
