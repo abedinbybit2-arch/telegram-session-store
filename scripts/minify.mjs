@@ -1,12 +1,13 @@
 /**
- * Production build:
- * - JS → /js/v/*.js one-line minified bundles (hard to read)
- * - CSS → /css/v/*.css one-line minified
- * - HTML → root pages collapsed to a single line for View Source
- * Mouse / right-click are NEVER blocked.
+ * Production build — JavaScript-hidden pages
+ *
+ * View Source shows ONLY one line:
+ *   a tiny HTML shell + one packed JS that atob()s the real page and document.write()s it.
+ *
+ * Mouse / right-click stay fully normal (no blocking).
  */
 import * as esbuild from "esbuild";
-import { mkdir, readFile, writeFile, readdir } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -15,6 +16,7 @@ const jsDir = path.join(root, "js");
 const cssDir = path.join(root, "css");
 const outJs = path.join(root, "js", "v");
 const outCss = path.join(root, "css", "v");
+const pagesDir = path.join(root, "src", "pages");
 
 const jsEntries = [
   "landing.js",
@@ -41,55 +43,49 @@ function minifyCss(css) {
     .trim();
 }
 
-/** Collapse HTML to one line; strip comments; point assets to /js/v and /css/v */
-function minifyHtml(html) {
-  let h = html
-    // drop protect scripts entirely
-    .replace(/<script[^>]*protect\.js[^>]*><\/script>\s*/gi, "")
-    // production asset paths
-    .replaceAll('href="/css/main.css"', 'href="/css/v/main.css"')
-    .replaceAll('href="/css/app.css"', 'href="/css/v/app.css"')
-    .replaceAll('src="/js/landing.js"', 'src="/js/v/landing.js"')
-    .replaceAll('src="/js/login.js"', 'src="/js/v/login.js"')
-    .replaceAll('src="/js/signup.js"', 'src="/js/v/signup.js"')
-    .replaceAll('src="/js/dashboard.js"', 'src="/js/v/dashboard.js"')
-    .replaceAll('src="/js/sessions-page.js"', 'src="/js/v/sessions-page.js"')
-    .replaceAll('src="/js/v/protect.js"', "")
-    .replace(/src="\/js\/v\/protect\.js"/g, "")
-    // HTML comments
+/** Compact real HTML that JS will inject (still one string, not multi-line for smaller payload) */
+function compactHtml(html) {
+  return html
     .replace(/<!--[\s\S]*?-->/g, "")
-    // collapse whitespace between tags
     .replace(/>\s+</g, "><")
     .replace(/\s{2,}/g, " ")
+    .replace(/\r?\n/g, "")
     .trim();
+}
 
-  // Force single physical line (View Source = one wall of text)
-  h = h.replace(/\r?\n/g, "");
+/**
+ * Build a 1-line shell. View Source = only this.
+ * Real UI is base64 inside JS and written at runtime.
+ */
+function buildJsShell(realHtml, title) {
+  const b64 = Buffer.from(realHtml, "utf8").toString("base64");
 
-  // Decoy one-liner junk (looks like packed payload, does nothing)
-  const decoy =
-    '<script type="text/javascript">/*!TS*/(function(_0x' +
-    Math.random().toString(16).slice(2, 8) +
-    "){var _0xa='" +
-    Buffer.from("Telegram Session Store decoy " + Date.now())
-      .toString("base64")
-      .replace(/=+$/, "") +
-    "';try{atob(_0xa)}catch(_0xe){}})();</script>";
+  // Pack loader: decode base64 UTF-8 safely, then document.write full page
+  // Entire shell is forced to a single physical line
+  const loader =
+    "(function(){try{var _b='" +
+    b64 +
+    "',_s=atob(_b),_u=new Uint8Array(_s.length);for(var i=0;i<_s.length;i++)_u[i]=_s.charCodeAt(i);var _h=new TextDecoder('utf-8').decode(_u);document.open();document.write(_h);document.close()}catch(e){document.body.textContent='Load error'}}())";
 
-  // Inject decoy before </body>
-  if (h.includes("</body>")) {
-    h = h.replace("</body>", decoy + "</body>");
-  } else {
-    h += decoy;
-  }
+  const shell =
+    "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/><title>" +
+    title.replace(/</g, "") +
+    "</title></head><body><script>" +
+    loader +
+    "</script><noscript>Enable JavaScript</noscript></body></html>";
 
-  return h;
+  return shell.replace(/\r?\n/g, "");
+}
+
+function extractTitle(html) {
+  const m = html.match(/<title>([^<]*)<\/title>/i);
+  return m ? m[1].trim() : "Telegram Session Store";
 }
 
 await mkdir(outJs, { recursive: true });
 await mkdir(outCss, { recursive: true });
 
-// --- JS one-liners ---
+// --- JS app bundles (one-line minified) ---
 for (const file of jsEntries) {
   const infile = path.join(jsDir, file);
   const outfile = path.join(outJs, file);
@@ -109,50 +105,40 @@ for (const file of jsEntries) {
   let code = await readFile(outfile, "utf8");
   code = code.replace(/\r?\n+/g, "");
   await writeFile(outfile, code, "utf8");
-  console.log("js ", file, "→ one-line", code.length, "chars");
-}
-
-// remove protect from prod bundle dir if present
-try {
-  await writeFile(
-    path.join(outJs, "protect.js"),
-    "/*empty*/",
-    "utf8"
-  );
-} catch {
-  /* ignore */
+  console.log("js ", file, "→", code.length, "chars (1 line)");
 }
 
 // --- CSS one-liners ---
-// app.css @imports main — inline main into app for single file where needed
 const mainCss = await readFile(path.join(cssDir, "main.css"), "utf8");
 const appCssRaw = await readFile(path.join(cssDir, "app.css"), "utf8");
 const appCss = appCssRaw.replace(
   /@import\s+url\(["']?\.\/main\.css["']?\);?/i,
   mainCss
 );
-
 await writeFile(path.join(outCss, "main.css"), minifyCss(mainCss), "utf8");
 await writeFile(path.join(outCss, "app.css"), minifyCss(appCss), "utf8");
-console.log("css → /css/v/*.css one-line");
+console.log("css → /css/v one-line");
 
-// --- HTML one-liners (production pages) ---
-// Keep readable templates under /src/pages if we want later; for now minify live HTML
+// --- HTML: JavaScript-hidden shells (View Source = 1 line only) ---
 for (const page of htmlPages) {
-  const p = path.join(root, page);
-  let src = await readFile(p, "utf8");
-
-  // If already minified previously, recover is hard — always build from "pretty" if available
-  const prettyPath = path.join(root, "src", "pages", page);
-  try {
-    src = await readFile(prettyPath, "utf8");
-  } catch {
-    // use current file; if it's already one line, still re-process paths
-  }
-
-  const out = minifyHtml(src);
-  await writeFile(p, out, "utf8");
-  console.log("html", page, "→ 1 line,", out.length, "chars");
+  const srcPath = path.join(pagesDir, page);
+  const real = await readFile(srcPath, "utf8");
+  const compact = compactHtml(real);
+  const title = extractTitle(real);
+  const shell = buildJsShell(compact, title);
+  await writeFile(path.join(root, page), shell, "utf8");
+  const lines = shell.split(/\r?\n/).length;
+  console.log(
+    "html",
+    page,
+    "→ shell lines:",
+    lines,
+    "chars:",
+    shell.length,
+    "(JS-hidden page)"
+  );
 }
 
-console.log("Done. Right-click/mouse normal. View Source = single-line wall.");
+console.log(
+  "\nDone. View Source = 1 line JS shell. Real HTML only after JS runs. Mouse normal."
+);
