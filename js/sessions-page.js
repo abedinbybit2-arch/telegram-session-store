@@ -225,11 +225,23 @@ function startLiveLoop() {
 }
 
 // Realtime Firebase sync — survives refresh & multi-device
+let firstSnapshot = true;
+let activateBusy = false;
 watchSessions(user.uid, async (items) => {
   sessions = items;
   render();
-  await activateAllActive();
-  startLiveLoop();
+  if (activateBusy) return;
+  // Full activate on first load, or when new active sessions appear
+  const needsActivate = firstSnapshot || items.some((s) => s.active);
+  firstSnapshot = false;
+  if (!needsActivate) return;
+  activateBusy = true;
+  try {
+    await activateAllActive();
+    startLiveLoop();
+  } finally {
+    activateBusy = false;
+  }
 });
 
 els.form?.addEventListener("submit", async (e) => {
@@ -242,31 +254,54 @@ els.form?.addEventListener("submit", async (e) => {
     showAlert("error", "Paste a Telethon or Pyrogram session string.");
     return;
   }
+  if (session.length < 30) {
+    showAlert(
+      "error",
+      "Session string is too short. Paste the full export string."
+    );
+    return;
+  }
 
   els.btnAdd.disabled = true;
   els.btnAdd.textContent = "Validating…";
+  showAlert("success", "Connecting to Telegram with your session… please wait.");
   try {
     const res = await validateSession(session, type);
-    if (!res.ok) {
-      showAlert("error", res.error || "Invalid session.");
+    if (!res.ok || !res.encryptedSession) {
+      showAlert(
+        "error",
+        res.error ||
+          "Invalid session — Telegram did not authorize this string."
+      );
       return;
     }
     const id = makeSessionId();
-    await saveSession(user.uid, {
-      id,
-      label: label || res.profile?.displayName || "Telegram Account",
-      format: res.format || type,
-      encryptedSession: res.encryptedSession,
-      active: true,
-      profile: res.profile,
-      status: "active",
-      lastCheckedAt: res.checkedAt,
-    });
+    try {
+      await saveSession(user.uid, {
+        id,
+        label: label || res.profile?.displayName || "Telegram Account",
+        format: res.format || type,
+        encryptedSession: res.encryptedSession,
+        active: true,
+        profile: res.profile,
+        status: "active",
+        lastCheckedAt: res.checkedAt,
+      });
+    } catch (fsErr) {
+      showAlert(
+        "error",
+        "Telegram OK, but Firebase save failed: " +
+          (fsErr?.message || "permission/network error")
+      );
+      return;
+    }
     els.sessionInput.value = "";
-    els.sessionLabel.value = "";
+    if (els.sessionLabel) els.sessionLabel.value = "";
     showAlert(
       "success",
-      `Connected ${res.profile?.displayName || "account"} — encrypted & saved to Firebase.`
+      `Logged in: ${res.profile?.displayName || "account"}${
+        res.profile?.username ? " (@" + res.profile.username + ")" : ""
+      } — encrypted & saved.`
     );
     liveState.set(id, {
       ok: true,

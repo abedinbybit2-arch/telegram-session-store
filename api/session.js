@@ -1,12 +1,14 @@
 /**
- * Telegram Session Store — server-only session validate / activate / encrypt
- * Supports Telethon StringSession + Pyrogram session strings via GramJS.
- * TG_API_ID / TG_API_HASH / SESSION_ENCRYPTION_KEY stay on the server.
+ * Telegram Session Store — validate / activate Telethon + Pyrogram sessions
+ * GramJS on Vercel serverless. api_id / api_hash / encryption key = server only.
  */
 
 const crypto = require("crypto");
 const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
+const { AuthKey } = require("telegram/crypto/AuthKey");
+
+const HARD_TIMEOUT_MS = 40000;
 
 function resolveApiCredentials() {
   const apiId = Number(process.env.TG_API_ID || "");
@@ -33,7 +35,10 @@ function encryptSession(plain) {
   const key = encryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const enc = Buffer.concat([cipher.update(String(plain), "utf8"), cipher.final()]);
+  const enc = Buffer.concat([
+    cipher.update(String(plain), "utf8"),
+    cipher.final(),
+  ]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([iv, tag, enc]).toString("base64");
 }
@@ -47,7 +52,9 @@ function decryptSession(payload) {
   const data = buf.subarray(28);
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+  return Buffer.concat([decipher.update(data), decipher.final()]).toString(
+    "utf8"
+  );
 }
 
 function setCors(res) {
@@ -70,8 +77,8 @@ function parseBody(req) {
 
 function errMsg(err) {
   if (!err) return "Unknown error";
-  if (err.errorMessage) return err.errorMessage;
-  if (err.message) return err.message;
+  if (err.errorMessage) return String(err.errorMessage);
+  if (err.message) return String(err.message);
   return String(err);
 }
 
@@ -79,127 +86,196 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            label ||
+              `Timed out after ${Math.round(ms / 1000)}s. Telegram DC may be slow — try again.`
+          )
+        ),
+      ms
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function cleanSession(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, "")
+    .replace(/\r|\n|\t/g, "");
+}
+
+const DC_MAP = {
+  1: { ip: "149.154.175.53", port: 443 },
+  2: { ip: "149.154.167.51", port: 443 },
+  3: { ip: "149.154.175.100", port: 443 },
+  4: { ip: "149.154.167.91", port: 443 },
+  5: { ip: "91.108.56.130", port: 443 },
+};
+
 /**
- * Convert Pyrogram session string to Telethon/GramJS StringSession when possible.
- * Pyrogram packs: dc_id, api_id, test_mode, auth_key(256), user_id, is_bot
+ * Build GramJS StringSession from Pyrogram session string.
+ * Layout: dc_id(1) + api_id(4 LE) + test_mode(1) + auth_key(256) [+ user_id(8) + is_bot(1)]
  */
 async function pyrogramToStringSession(pyro) {
-  const cleaned = String(pyro || "").trim().replace(/\s+/g, "");
+  const cleaned = cleanSession(pyro);
   if (!cleaned) throw new Error("Empty Pyrogram session.");
 
-  // Already looks like Telethon (often starts with "1")
-  if (/^1[A-Za-z0-9+/=_-]+$/.test(cleaned) && cleaned.length > 100) {
+  if (cleaned[0] === "1" && cleaned.length > 100) {
     return cleaned;
   }
 
+  const b64 = cleaned.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
   let raw;
   try {
-    // URL-safe base64 support
-    const b64 = cleaned.replace(/-/g, "+").replace(/_/g, "/");
-    raw = Buffer.from(b64 + "=".repeat((4 - (b64.length % 4)) % 4), "base64");
+    raw = Buffer.from(padded, "base64");
   } catch {
-    throw new Error("Invalid Pyrogram session encoding.");
+    throw new Error("Invalid Pyrogram session encoding (not base64).");
   }
 
-  // Common Pyrogram layout: 1 byte dc + 4 api_id + 1 test + 256 auth_key (+ optional)
   if (raw.length < 262) {
-    return cleaned;
+    throw new Error(
+      "Pyrogram session too short. Export with: await client.export_session_string()"
+    );
   }
 
   const dcId = raw.readUInt8(0);
   const authKeyBuf = raw.subarray(6, 262);
-
   if (dcId < 1 || dcId > 5) {
-    return cleaned;
+    throw new Error(`Invalid DC id in Pyrogram session: ${dcId}`);
   }
 
-  const DC_MAP = {
-    1: { ip: "149.154.175.53", port: 443 },
-    2: { ip: "149.154.167.51", port: 443 },
-    3: { ip: "149.154.175.100", port: 443 },
-    4: { ip: "149.154.167.91", port: 443 },
-    5: { ip: "91.108.56.130", port: 443 },
-  };
   const dc = DC_MAP[dcId] || DC_MAP[2];
-
-  const { AuthKey } = require("telegram/crypto/AuthKey");
   const session = new StringSession("");
   session.setDC(dcId, dc.ip, dc.port);
   const key = new AuthKey();
   await key.setKey(authKeyBuf);
   session.setAuthKey(key);
-  return session.save();
+  const saved = session.save();
+  if (!saved || saved[0] !== "1") {
+    throw new Error("Failed to convert Pyrogram session to StringSession.");
+  }
+  return saved;
 }
 
+/**
+ * Accept Telethon / GramJS / Pyrogram strings and return a loadable StringSession string.
+ */
 async function normalizeSessionInput(session, typeHint) {
-  const raw = String(session || "").trim().replace(/\s+/g, "");
+  let raw = cleanSession(session);
   if (!raw) throw new Error("Session string is required.");
-  if (raw.length < 30) throw new Error("Session string looks too short.");
+  if (raw.length < 30) {
+    throw new Error(
+      "Session string looks too short. Paste the full Telethon or Pyrogram string."
+    );
+  }
+
+  // Strip common wrappers
+  if (raw.startsWith("StringSession(") && raw.endsWith(")")) {
+    raw = raw.slice("StringSession(".length, -1).replace(/^["']|["']$/g, "");
+  }
 
   const hint = String(typeHint || "auto").toLowerCase();
+  const errors = [];
+
+  const tryTelethon = (s) => {
+    // GramJS requires version prefix "1"
+    const candidates = s[0] === "1" ? [s] : ["1" + s];
+    for (const c of candidates) {
+      try {
+        // throws "Not a valid string" if body is not a real session
+        // eslint-disable-next-line no-new
+        new StringSession(c);
+        return c;
+      } catch (e) {
+        errors.push(`telethon: ${errMsg(e)}`);
+      }
+    }
+    return null;
+  };
 
   if (hint === "telethon" || hint === "string" || hint === "gramjs") {
-    return { sessionString: raw, format: "telethon" };
-  }
-  if (hint === "pyrogram") {
-    return {
-      sessionString: await pyrogramToStringSession(raw),
-      format: "pyrogram",
-    };
+    const t = tryTelethon(raw);
+    if (!t) {
+      throw new Error(
+        "Invalid Telethon StringSession. It must be a full export (usually starts with 1). " +
+          (errors[0] || "")
+      );
+    }
+    return { sessionString: t, format: "telethon" };
   }
 
-  // auto-detect
-  if (raw.startsWith("1") && raw.length > 150) {
-    return { sessionString: raw, format: "telethon" };
+  if (hint === "pyrogram") {
+    const p = await pyrogramToStringSession(raw);
+    return { sessionString: p, format: "pyrogram" };
   }
+
+  // auto
+  if (raw[0] === "1" && raw.length > 80) {
+    const t = tryTelethon(raw);
+    if (t) return { sessionString: t, format: "telethon" };
+  }
+
   try {
-    return {
-      sessionString: await pyrogramToStringSession(raw),
-      format: "pyrogram",
-    };
-  } catch {
-    return { sessionString: raw, format: "telethon" };
+    const p = await pyrogramToStringSession(raw);
+    return { sessionString: p, format: "pyrogram" };
+  } catch (e) {
+    errors.push(`pyrogram: ${errMsg(e)}`);
   }
+
+  const t2 = tryTelethon(raw);
+  if (t2) return { sessionString: t2, format: "telethon" };
+
+  throw new Error(
+    "Could not parse session. Use Telethon StringSession.save() or Pyrogram export_session_string(). " +
+      errors.slice(0, 2).join(" | ")
+  );
 }
 
-async function withClient(sessionString, apiId, apiHash, fn) {
-  const stringSession = new StringSession(sessionString);
-  const client = new TelegramClient(stringSession, apiId, apiHash, {
-    connectionRetries: 3,
-    useWSS: true,
-    timeout: 20,
+function createClient(sessionString, apiId, apiHash, useWSS) {
+  return new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
+    connectionRetries: 2,
+    useWSS: Boolean(useWSS),
+    timeout: 15,
+    requestRetries: 2,
+    autoReconnect: false,
+    retryDelay: 1000,
+    deviceModel: "Telegram Session Store",
+    systemVersion: "Web",
+    appVersion: "1.1.0",
+    langCode: "en",
   });
+}
 
+async function safeDisconnect(client) {
   try {
-    await client.connect();
-    if (!(await client.checkAuthorization())) {
-      throw new Error("Session is invalid or expired (not authorized).");
-    }
-    const result = await fn(client, stringSession);
-    // Prefer freshest save (auth key rotation etc.)
-    const saved = client.session.save();
-    return { ...result, sessionString: saved || sessionString };
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {
-      /* ignore */
-    }
-    try {
-      client.destroy();
-    } catch {
-      /* ignore */
-    }
+    await client.disconnect();
+  } catch {
+    /* ignore */
+  }
+  try {
+    client.destroy();
+  } catch {
+    /* ignore */
   }
 }
 
 function mapUser(me) {
+  if (!me) return { id: "", displayName: "Unknown", username: "", phone: "" };
   const first = me.firstName || me.first_name || "";
   const last = me.lastName || me.last_name || "";
   const username = me.username || "";
   const phone = me.phone || "";
-  const id = String(me.id || me.userId || "");
-  const displayName = [first, last].filter(Boolean).join(" ") || username || phone || id;
+  const id = String(me.id?.value ?? me.id ?? me.userId ?? "");
+  const displayName =
+    [first, last].filter(Boolean).join(" ") || username || phone || id;
   return {
     id,
     firstName: first,
@@ -210,6 +286,87 @@ function mapUser(me) {
     isBot: Boolean(me.bot),
     isPremium: Boolean(me.premium),
   };
+}
+
+/**
+ * Connect with TCP first (Node/serverless-friendly), then WSS fallback.
+ */
+async function withClient(sessionString, apiId, apiHash, fn) {
+  const modes = [false, true]; // useWSS
+  let lastErr;
+
+  for (const useWSS of modes) {
+    const client = createClient(sessionString, apiId, apiHash, useWSS);
+    try {
+      await withTimeout(
+        (async () => {
+          await client.connect();
+        })(),
+        20000,
+        `Connect timeout (${useWSS ? "WSS" : "TCP"})`
+      );
+
+      const authorized = await withTimeout(
+        client.checkAuthorization(),
+        10000,
+        "Auth check timeout"
+      );
+      if (!authorized) {
+        throw new Error(
+          "Session is not authorized (expired or invalid). Generate a new session string."
+        );
+      }
+
+      const result = await withTimeout(
+        fn(client),
+        15000,
+        "getMe timeout"
+      );
+      let saved = sessionString;
+      try {
+        saved = client.session.save() || sessionString;
+      } catch {
+        /* keep original */
+      }
+      await safeDisconnect(client);
+      return { ...result, sessionString: saved };
+    } catch (err) {
+      lastErr = err;
+      await safeDisconnect(client);
+      const msg = errMsg(err);
+      // Don't retry other transport for hard session errors
+      if (
+        /not authorized|invalid|AUTH_KEY|USER_DEACTIVATED|SESSION_REVOKED|Not a valid string/i.test(
+          msg
+        )
+      ) {
+        break;
+      }
+      // try next mode
+    }
+  }
+
+  throw lastErr || new Error("Failed to connect with session");
+}
+
+function friendlyError(err) {
+  const msg = errMsg(err);
+  if (/Not a valid string/i.test(msg)) {
+    return "Invalid session format. Telethon strings usually start with 1. Pyrogram: use export_session_string().";
+  }
+  if (/AUTH_KEY_UNREGISTERED|SESSION_REVOKED|SESSION_EXPIRED/i.test(msg)) {
+    return "Session revoked or expired. Create a new session and try again.";
+  }
+  if (/USER_DEACTIVATED/i.test(msg)) {
+    return "This Telegram account is deactivated.";
+  }
+  if (/FLOOD_WAIT/i.test(msg)) {
+    return "Telegram rate limit (FLOOD_WAIT). Wait a minute and retry.";
+  }
+  if (/TIMEOUT|Timed out|ECONN|ENOTFOUND|Network/i.test(msg)) {
+    return "Network timeout reaching Telegram. Retry — serverless cold start can be slow.";
+  }
+  return msg;
 }
 
 module.exports = async function handler(req, res) {
@@ -232,24 +389,10 @@ module.exports = async function handler(req, res) {
       res.status(200).json({
         ok: true,
         hasApi: creds.ok,
-        supports: ["telethon", "pyrogram", "string"],
+        apiId: creds.ok ? creds.apiId : null,
+        supports: ["telethon", "pyrogram", "string", "auto"],
+        timeoutMs: HARD_TIMEOUT_MS,
       });
-      return;
-    }
-
-    if (action === "encrypt") {
-      const plain = String(body.session || "").trim();
-      if (!plain) {
-        res.status(400).json({ ok: false, error: "session required" });
-        return;
-      }
-      res.status(200).json({ ok: true, encrypted: encryptSession(plain) });
-      return;
-    }
-
-    if (action === "decrypt") {
-      // Intentionally restricted: only returns validity flag for debugging if needed
-      res.status(403).json({ ok: false, error: "Not allowed" });
       return;
     }
 
@@ -263,7 +406,16 @@ module.exports = async function handler(req, res) {
     let format = "telethon";
 
     if (body.encryptedSession) {
-      plainSession = decryptSession(body.encryptedSession);
+      try {
+        plainSession = decryptSession(body.encryptedSession);
+      } catch {
+        res.status(400).json({
+          ok: false,
+          error: "Could not decrypt stored session. Remove and re-add it.",
+          active: false,
+        });
+        return;
+      }
       format = body.format || "telethon";
     } else {
       const norm = await normalizeSessionInput(
@@ -275,53 +427,49 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === "validate" || action === "activate" || action === "ping") {
-      let attempt = 0;
-      let lastErr;
-      while (attempt < 3) {
-        attempt += 1;
-        try {
-          const out = await withClient(
-            plainSession,
-            creds.apiId,
-            creds.apiHash,
-            async (client) => {
-              const me = await client.getMe();
-              return { profile: mapUser(me) };
-            }
-          );
+      try {
+        const out = await withTimeout(
+          withClient(plainSession, creds.apiId, creds.apiHash, async (client) => {
+            const me = await client.getMe();
+            return { profile: mapUser(me) };
+          }),
+          HARD_TIMEOUT_MS,
+          "Session validation timed out. Try again."
+        );
 
-          const encrypted = encryptSession(out.sessionString);
-          res.status(200).json({
-            ok: true,
-            format,
-            profile: out.profile,
-            encryptedSession: encrypted,
-            // Never return plain session to browser after first validate from paste
-            active: true,
-            checkedAt: new Date().toISOString(),
+        let encrypted;
+        try {
+          encrypted = encryptSession(out.sessionString);
+        } catch (e) {
+          res.status(500).json({
+            ok: false,
+            error: "Session OK but encryption failed: " + errMsg(e),
+            active: false,
           });
           return;
-        } catch (err) {
-          lastErr = err;
-          const msg = errMsg(err);
-          if (/FLOOD_WAIT_(\d+)/i.test(msg)) {
-            const sec = Number(msg.match(/FLOOD_WAIT_(\d+)/i)[1] || 3);
-            await sleep(Math.min(sec, 8) * 1000);
-            continue;
-          }
-          break;
         }
+
+        res.status(200).json({
+          ok: true,
+          format,
+          profile: out.profile,
+          encryptedSession: encrypted,
+          active: true,
+          checkedAt: new Date().toISOString(),
+        });
+        return;
+      } catch (err) {
+        res.status(400).json({
+          ok: false,
+          error: friendlyError(err),
+          active: false,
+        });
+        return;
       }
-      res.status(400).json({
-        ok: false,
-        error: errMsg(lastErr) || "Failed to validate session",
-        active: false,
-      });
-      return;
     }
 
     res.status(400).json({ ok: false, error: `Unknown action: ${action}` });
   } catch (err) {
-    res.status(500).json({ ok: false, error: errMsg(err) });
+    res.status(500).json({ ok: false, error: friendlyError(err) });
   }
 };
