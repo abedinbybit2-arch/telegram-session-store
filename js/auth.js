@@ -71,7 +71,8 @@ export async function logOut() {
 export function friendlyAuthError(err) {
   const code = err?.code || "";
   const map = {
-    "auth/email-already-in-use": "This email is already registered. Try signing in.",
+    "auth/email-already-in-use":
+      "This email is already registered. Try signing in.",
     "auth/invalid-email": "Please enter a valid email address.",
     "auth/weak-password": "Password must be at least 6 characters.",
     "auth/user-not-found": "No account found with this email.",
@@ -79,6 +80,12 @@ export function friendlyAuthError(err) {
     "auth/invalid-credential": "Invalid email or password.",
     "auth/too-many-requests": "Too many attempts. Please wait and try again.",
     "auth/network-request-failed": "Network error. Check your connection.",
+    "auth/configuration-not-found":
+      "Firebase Auth is not enabled for this project. Contact support.",
+    "auth/operation-not-allowed":
+      "Email/password sign-in is disabled. Enable it in Firebase Console.",
+    "auth/unauthorized-domain":
+      "This domain is not authorized in Firebase Auth settings.",
   };
   return map[code] || err?.message || "Authentication failed.";
 }

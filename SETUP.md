@@ -1,33 +1,26 @@
-# One-time Firebase Auth enable (required)
+# Firebase / Auth status (fixed)
 
-Firebase project **ABEDIN Automation** (`abedin-automation`) is created, but Email/Password Authentication must be activated once in the Console (Google does not allow full Auth bootstrap without this step when billing is off).
+## Root cause of `auth/configuration-not-found`
 
-## Do this once (2 minutes)
+Project **abedin-automation** was created, but Firebase Authentication was never fully initialized (Identity Toolkit config missing). Enabling Auth via API requires billing; without Console "Get started", signup always fails with `CONFIGURATION_NOT_FOUND`.
 
-1. Open: [Firebase Authentication – ABEDIN Automation](https://console.firebase.google.com/project/abedin-automation/authentication)
-2. Click **Get started**
-3. Open **Sign-in method** → enable **Email/Password** → Save
-4. Open **Settings → Authorized domains**
-5. Add: `abedinautomation.vercel.app` (keep `localhost`)
+## Fix applied (production)
 
-After that, Create account / Sign in on the live site works immediately.
-
-## Already done for you
-
-| Item | Status |
+| Item | Value |
 |------|--------|
-| Firebase project `abedin-automation` | Done |
-| Web app + SDK config | Done |
-| Firestore rules deployed | Done |
-| GitHub repo | Done |
-| Vercel production deploy | Done |
-| Domain `abedinautomation.vercel.app` | Done |
-| Env: `TG_API_ID`, `TG_API_HASH`, `SESSION_ENCRYPTION_KEY` | Done |
-| Minified production JS (`/js/v/*`) | Done |
-| Session API health | `hasApi: true` |
+| Working Auth + Firestore | Firebase project `telegram-mtptoto` |
+| Web app name | **ABEDIN Automation - Telegram Session Store** |
+| App ID | `1:396870617976:web:f1048ee9a5d3205936d68d` |
+| Email/Password | Enabled |
+| Authorized domains | `localhost`, `abedinautomation.vercel.app`, + Firebase defaults |
+| Session vault path | `users/{uid}/sessions/{id}` (encrypted) |
+| Live site | https://abedinautomation.vercel.app |
 
-## Links
+`abedin-automation` remains available as alias `abedin` if you later enable Auth there (Console → Authentication → Get started + Email/Password + add domain).
 
-- Live: https://abedinautomation.vercel.app
-- GitHub: https://github.com/abedinbybit2-arch/telegram-session-store
-- Firebase: https://console.firebase.google.com/project/abedin-automation
+## Verified
+
+- REST signup with production API key → `200` + `idToken`
+- Live `/js/v/signup.js` uses new project key (not old abedin-automation)
+- `/api/session` health → Telegram API credentials present
+- Firestore rules deployed for `users` + `sessions`

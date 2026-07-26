@@ -1,7 +1,6 @@
 {
   "projects": {
-    "default": "abedin-automation"
-  },
-  "targets": {},
-  "etags": {}
+    "default": "telegram-mtptoto",
+    "abedin": "abedin-automation"
+  }
 }

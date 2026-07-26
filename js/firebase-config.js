@@ -1,6 +1,7 @@
 /**
  * Telegram Session Store — Firebase Web config
- * Project: abedin-automation (ABEDIN Automation)
+ * Web app: ABEDIN Automation - Telegram Session Store
+ * Auth project: telegram-mtptoto (Email/Password enabled + authorized domains)
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
 import {
@@ -11,12 +12,12 @@ import {
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBdol6PSRLgh7KXTj_ldRL-2eq25wB_OiA",
-  authDomain: "abedin-automation.firebaseapp.com",
-  projectId: "abedin-automation",
-  storageBucket: "abedin-automation.firebasestorage.app",
-  messagingSenderId: "558654478096",
-  appId: "1:558654478096:web:3a63c194c951fdd9877795",
+  apiKey: "AIzaSyAm_jXjfjFQrsEMZGxq_J2B_nK4juOBXpk",
+  authDomain: "telegram-mtptoto.firebaseapp.com",
+  projectId: "telegram-mtptoto",
+  storageBucket: "telegram-mtptoto.firebasestorage.app",
+  messagingSenderId: "396870617976",
+  appId: "1:396870617976:web:f1048ee9a5d3205936d68d",
 };
 
 const app = initializeApp(firebaseConfig);
