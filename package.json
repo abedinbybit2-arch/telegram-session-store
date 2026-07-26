@@ -1,0 +1,20 @@
+{
+  "name": "telegram-session-store",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram Session Store — encrypted multi-session manager (Telethon / Pyrogram)",
+  "scripts": {
+    "start": "npx --yes serve . -p 3000",
+    "minify": "node scripts/minify.mjs",
+    "prepare:web": "node scripts/minify.mjs"
+  },
+  "dependencies": {
+    "telegram": "^2.26.22"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
