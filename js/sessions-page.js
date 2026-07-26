@@ -264,7 +264,10 @@ els.form?.addEventListener("submit", async (e) => {
 
   els.btnAdd.disabled = true;
   els.btnAdd.textContent = "Validating…";
-  showAlert("success", "Connecting to Telegram with your session… please wait.");
+  showAlert(
+    "success",
+    "Connecting to Telegram (server WSS :443)… please wait up to ~45s."
+  );
   try {
     const res = await validateSession(session, type);
     if (!res.ok || !res.encryptedSession) {

@@ -429,6 +429,38 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    if (action === "encrypt") {
+      try {
+        const plain = String(body.session || "").trim();
+        if (!plain) {
+          res.status(400).json({ ok: false, error: "session required" });
+          return;
+        }
+        res.status(200).json({ ok: true, encrypted: encryptSession(plain) });
+      } catch (err) {
+        res.status(500).json({ ok: false, error: errMsg(err) });
+      }
+      return;
+    }
+
+    // Convert formats only (no Telegram network)
+    if (action === "normalize") {
+      try {
+        const norm = await normalizeSessionInput(
+          body.session,
+          body.type || body.format
+        );
+        res.status(200).json({
+          ok: true,
+          format: norm.format,
+          sessionString: norm.sessionString,
+        });
+      } catch (err) {
+        res.status(400).json({ ok: false, error: friendlyError(err) });
+      }
+      return;
+    }
+
     // Quick Telegram DC reachability check (no session required)
     if (action === "probe") {
       const creds = resolveApiCredentials();
